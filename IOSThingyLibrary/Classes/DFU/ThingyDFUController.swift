@@ -43,7 +43,7 @@
 //
 //
 
-import iOSDFULibrary
+import NordicDFU
 import CoreBluetooth
 
 enum BootloaderJumpState {

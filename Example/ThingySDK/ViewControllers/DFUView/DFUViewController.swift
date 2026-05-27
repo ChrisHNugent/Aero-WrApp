@@ -43,7 +43,7 @@
 
 import UIKit
 import IOSThingyLibrary
-import iOSDFULibrary
+import NordicDFU
 import CoreBluetooth
 
 class DFUViewController: SwipableTableViewController, ThingyDFUDelegate, NewThingyDelegate, FileSelectionDelegate {

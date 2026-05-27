@@ -22,3 +22,7 @@ playground.xcworkspace
 .build/
 Carthage/Build
 .DS_Store
+
+# CocoaPods - commit Podfile.lock but not the Pods directory
+Example/Pods/
+!Example/Podfile.lock
