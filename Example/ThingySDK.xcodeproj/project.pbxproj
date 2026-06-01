@@ -88,6 +88,7 @@
 		607FACDB1AFB9204008FA782 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 607FACD91AFB9204008FA782 /* Main.storyboard */; };
 		607FACDD1AFB9204008FA782 /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 607FACDC1AFB9204008FA782 /* Images.xcassets */; };
 		607FACE01AFB9204008FA782 /* LaunchScreen.xib in Resources */ = {isa = PBXBuildFile; fileRef = 607FACDE1AFB9204008FA782 /* LaunchScreen.xib */; };
+		6F1A1C8D2FCDDDD20025A82F /* AeroWrapHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1A1C8C2FCDDDD20025A82F /* AeroWrapHomeView.swift */; };
 		CB3C44BA52EB53FAB015089A /* Pods_ThingySDK_Example.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD411A27C5AACC80B6A70A0B /* Pods_ThingySDK_Example.framework */; };
 /* End PBXBuildFile section */
 
@@ -189,6 +190,7 @@
 		607FACDF1AFB9204008FA782 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/LaunchScreen.xib; sourceTree = "<group>"; };
 		607FACE51AFB9204008FA782 /* ThingySDK_Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ThingySDK_Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		607FACEA1AFB9204008FA782 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		6F1A1C8C2FCDDDD20025A82F /* AeroWrapHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AeroWrapHomeView.swift; sourceTree = "<group>"; };
 		CF1A9983991642C5EBFBAC9F /* Pods-ThingySDK_Example.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ThingySDK_Example.release.xcconfig"; path = "Target Support Files/Pods-ThingySDK_Example/Pods-ThingySDK_Example.release.xcconfig"; sourceTree = "<group>"; };
 		DA6CEF6C224C5808D1DC80E2 /* LICENSE */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
 		DD411A27C5AACC80B6A70A0B /* Pods_ThingySDK_Example.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_ThingySDK_Example.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -226,6 +228,8 @@
 		3007EEF41DA4F1EB003F844B /* ViewControllers */ = {
 			isa = PBXGroup;
 			children = (
+				6F1A1C8C2FCDDDD20025A82F /* AeroWrapHomeView.swift */,
+				6F1A1C8B2FCDDCBA0025A82F /* New Group */,
 				309E4E541DA6900700C90FDF /* BaseViews */,
 				301157F81DD61B8F00137C41 /* TutorialView */,
 				30F3421C1DF5A0F8003E9119 /* ThingyCreatorView */,
@@ -594,6 +598,13 @@
 			name = "Podspec Metadata";
 			sourceTree = "<group>";
 		};
+		6F1A1C8B2FCDDCBA0025A82F /* New Group */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = "New Group";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -819,6 +830,7 @@
 				607FACD61AFB9204008FA782 /* AppDelegate.swift in Sources */,
 				30F342221DF5A0F8003E9119 /* ThingyInitialConfigurationViewController.swift in Sources */,
 				309E4E641DA6904C00C90FDF /* MenuItemTableViewCell.swift in Sources */,
+				6F1A1C8D2FCDDDD20025A82F /* AeroWrapHomeView.swift in Sources */,
 				30C0C9551E926FD70016C41C /* ThingyCloudViewController.swift in Sources */,
 				522E89FD1DFAFC0E00D0A048 /* EnvironmentSettingsViewController.swift in Sources */,
 				3039CCB21DD0D07000DA1C55 /* MotionModelScene.swift in Sources */,
