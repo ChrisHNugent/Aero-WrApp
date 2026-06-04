@@ -2,42 +2,44 @@
 //  AeroWrapHomeView.swift
 //  ThingySDK
 //
-//  Home / Monitor screen - SwiftUI port of the React clinical UI.
-//  Uses fake data so it can be developed and tested in the simulator
-//  without a real Thingy:52 device connected.
+//  Home / Monitor screen — SwiftUI port of the React "clinical" prototype.
+//  Rebuilt to match the React reference: light clinical palette, instrument
+//  needle gauge with reference band + ticks, preset grid, monospace readouts.
 //
-//  To embed in the existing UIKit app, see AeroWrapHostingController at
-//  the bottom of this file.
+//  Uses fake data so it runs in the simulator with no Thingy:52 connected.
+//  UIKit embedding helper is at the bottom (AeroWrapHostingController).
+//
+//  NOTE ON FONTS: the React design uses IBM Plex Sans / IBM Plex Mono.
+//  Those aren't system fonts, so this file uses the system font with a
+//  .monospaced design for the numeric readouts (visually very close). To get
+//  a pixel-exact match, add the IBM Plex .ttf files to the app bundle and
+//  swap the `.system(... design: .monospaced)` calls for `.custom("IBMPlexMono", ...)`.
 //
 
 import SwiftUI
 
 // ─────────────────────────────────────────────
-// MARK: - Theme
+// MARK: - Theme  (matches the React `C` object — light "clinical")
 // ─────────────────────────────────────────────
 
-/// All colours used by the clinical UI, matching the React `C` object.
 enum Theme {
-    static let background   = Color(hex: "#0D1117")
-    static let surface      = Color(hex: "#161B22")
-    static let surfaceAlt   = Color(hex: "#1C2128")
-    static let border       = Color(hex: "#30363D")
-    static let borderLight  = Color(hex: "#21262D")
-    static let textPrimary  = Color(hex: "#E6EDF3")
-    static let textSecondary = Color(hex: "#7D8590")
-    static let textMuted    = Color(hex: "#484F58")
-    static let accent       = Color(hex: "#58A6FF")
-    static let accentGreen  = Color(hex: "#3FB950")
-    static let accentOrange = Color(hex: "#D29922")
-    static let accentRed    = Color(hex: "#F85149")
-    static let accentPurple = Color(hex: "#BC8CFF")
-    static let gaugeTrack   = Color(hex: "#21262D")
-    static let gaugeGreen   = Color(hex: "#238636")
-    static let gaugeFill    = Color(hex: "#58A6FF")
+    static let bg          = Color(hex: "#EBEFF3")   // screen background
+    static let surface     = Color(hex: "#FFFFFF")   // panels
+    static let surfaceAlt   = Color(hex: "#F4F7FA")  // panel headers / chips
+    static let ink         = Color(hex: "#0F1B2D")   // primary text
+    static let muted       = Color(hex: "#5B6B7C")
+    static let faint       = Color(hex: "#8A99A8")
+    static let line        = Color(hex: "#DBE3EA")   // borders / track
+    static let primary     = Color(hex: "#0E5AA7")   // clinical blue (needle, accents)
+    static let primaryDeep = Color(hex: "#0A4178")
+    static let blue        = Color(hex: "#2E86DE")
+    static let normal      = Color(hex: "#138A6B")   // in-range green
+    static let caution     = Color(hex: "#C98A00")   // amber
+    static let alert       = Color(hex: "#D64545")   // red
 }
 
 extension Color {
-    /// Convenience initialiser: `Color(hex: "#RRGGBB")` or `Color(hex: "#RRGGBBAA")`.
+    /// `Color(hex: "#RRGGBB")` or `Color(hex: "#RRGGBBAA")`.
     init(hex: String) {
         var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if h.hasPrefix("#") { h.removeFirst() }
@@ -66,134 +68,141 @@ extension Color {
 // ─────────────────────────────────────────────
 
 struct Preset: Identifiable {
-    let id      : String
-    let label   : String
-    let target  : Double   // mmHg
-    let color   : Color
+    let id = UUID()
+    let label: String
+    let value: Double      // mmHg
+    let range: String
 }
 
 let presets: [Preset] = [
-    Preset(id: "light",  label: "Light",  target: 20, color: Theme.accentGreen),
-    Preset(id: "medium", label: "Medium", target: 30, color: Theme.accent),
-    Preset(id: "firm",   label: "Firm",   target: 40, color: Theme.accentOrange),
-    Preset(id: "max",    label: "Max",    target: 55, color: Theme.accentRed),
+    Preset(label: "Light",  value: 20, range: "15–20"),
+    Preset(label: "Medium", value: 30, range: "20–30"),
+    Preset(label: "Firm",   value: 40, range: "30–40"),
+    Preset(label: "Max",    value: 50, range: "40–50"),
 ]
 
 // ─────────────────────────────────────────────
-// MARK: - Gauge
+// MARK: - Gauge geometry
+//
+// One source of truth for converting a pressure value -> screen point on a
+// top-facing semicircle. v=min sits at the left baseline, v=max at the right
+// baseline, v=mid at the top. Y is flipped here (cy - r*sin) so the arc bows
+// UP. Everything (track, band, ticks, needle, hub) uses this, so it can never
+// disagree with itself — no `addArc` / `clockwise` ambiguity.
 // ─────────────────────────────────────────────
 
-/// Semicircular instrument gauge: flat side at the bottom, arc goes left → top → right.
-/// Range 0-60 mmHg, green therapeutic band 20-40 mmHg.
-struct GaugeView: View {
-    var value   : Double        // current pressure
-    var target  : Double        // target pressure
-    var minVal  : Double = 0
-    var maxVal  : Double = 60
+enum GaugeMath {
+    static let minV = 0.0
+    static let maxV = 60.0
 
-    private let greenLo: Double = 20
-    private let greenHi: Double = 40
+    static func geom(_ size: CGSize) -> (cx: CGFloat, cy: CGFloat, r: CGFloat) {
+        let w = size.width, h = size.height
+        let r = min(w / 2 - 30, h - 28)          // leave room for side labels & top
+        return (w / 2, h - 16, max(r, 1))         // center near the bottom edge
+    }
+
+    static func point(_ v: Double, _ size: CGSize, inset: CGFloat = 0) -> CGPoint {
+        let g = geom(size)
+        let r = g.r - inset
+        let frac = (min(max(v, minV), maxV) - minV) / (maxV - minV)
+        let a = Double.pi * (1 - frac)            // π (left) -> 0 (right), via top
+        return CGPoint(x: g.cx + r * CGFloat(cos(a)),
+                       y: g.cy - r * CGFloat(sin(a)))   // -sin => bow upward
+    }
+}
+
+/// A stroked arc sampled as a polyline (predictable in any coordinate system).
+struct ArcStroke: Shape {
+    var v0: Double
+    var v1: Double
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let n = 90
+        for i in 0...n {
+            let v = v0 + (v1 - v0) * Double(i) / Double(n)
+            let q = GaugeMath.point(v, rect.size)
+            if i == 0 { p.move(to: q) } else { p.addLine(to: q) }
+        }
+        return p
+    }
+}
+
+/// Short radial tick marks just inside the track.
+struct TicksStroke: Shape {
+    var ticks: [Double]
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        for t in ticks {
+            p.move(to: GaugeMath.point(t, rect.size, inset: 18))
+            p.addLine(to: GaugeMath.point(t, rect.size, inset: 8))
+        }
+        return p
+    }
+}
+
+/// The needle — animatable on `value` so it sweeps smoothly.
+struct Needle: Shape {
+    var value: Double
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+    func path(in rect: CGRect) -> Path {
+        let g = GaugeMath.geom(rect.size)
+        var p = Path()
+        p.move(to: CGPoint(x: g.cx, y: g.cy))
+        p.addLine(to: GaugeMath.point(value, rect.size, inset: 20))
+        return p
+    }
+}
+
+// ─────────────────────────────────────────────
+// MARK: - Instrument gauge
+// ─────────────────────────────────────────────
+
+struct InstrumentGauge: View {
+    var value: Double
+    var target: Double
+    private let ticks: [Double] = [0, 10, 20, 30, 40, 50, 60]
 
     var body: some View {
         GeometryReader { geo in
-            let w  = geo.size.width
-            let h  = geo.size.height
-            let cx = w / 2
-            let cy = h * 0.88          // centre of the arc circle sits near the bottom
-            let r  = min(w, h) * 0.42  // radius of the main arc
+            let size = geo.size
+            let g = GaugeMath.geom(size)
 
             ZStack {
-                // ── Track (full semicircle, left → right going over the top)
-                arcPath(cx: cx, cy: cy, r: r, from: minVal, to: maxVal)
-                    .stroke(Theme.gaugeTrack, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                // Track (full semicircle)
+                ArcStroke(v0: 0, v1: 60)
+                    .stroke(Theme.line, style: StrokeStyle(lineWidth: 13, lineCap: .round))
 
-                // ── Green therapeutic band (20-40 mmHg)
-                arcPath(cx: cx, cy: cy, r: r, from: greenLo, to: greenHi)
-                    .stroke(Theme.gaugeGreen.opacity(0.55),
-                            style: StrokeStyle(lineWidth: 10, lineCap: .butt))
+                // Therapeutic band 20–40
+                ArcStroke(v0: 20, v1: 40)
+                    .stroke(Theme.normal.opacity(0.85), style: StrokeStyle(lineWidth: 13, lineCap: .butt))
 
-                // ── Target tick mark
-                targetTick(cx: cx, cy: cy, r: r)
+                // Tick marks
+                TicksStroke(ticks: ticks)
+                    .stroke(Theme.faint, lineWidth: 1.5)
 
-                // ── Fill arc (0 → current value)
-                if value > minVal {
-                    arcPath(cx: cx, cy: cy, r: r, from: minVal, to: min(value, maxVal))
-                        .stroke(fillColor, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                // Tick labels (inside the arc)
+                ForEach(ticks, id: \.self) { t in
+                    Text("\(Int(t))")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(Theme.muted)
+                        .position(GaugeMath.point(t, size, inset: 32))
                 }
 
-                // ── Centre readout
-                VStack(spacing: 2) {
-                    Text(String(format: "%.1f", value))
-                        .font(.system(size: 40, weight: .bold, design: .monospaced))
-                        .foregroundColor(fillColor)
-                    Text("mmHg")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Theme.textSecondary)
-                }
-                .position(x: cx, y: cy - r * 0.22)
+                // Needle
+                Needle(value: value)
+                    .stroke(Theme.primary, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                    .animation(.easeInOut(duration: 0.7), value: value)
 
-                // ── Min / max labels
-                Text("\(Int(minVal))")
-                    .font(.system(size: 10))
-                    .foregroundColor(Theme.textMuted)
-                    .position(x: cx - r - 12, y: cy + 6)
-
-                Text("\(Int(maxVal))")
-                    .font(.system(size: 10))
-                    .foregroundColor(Theme.textMuted)
-                    .position(x: cx + r + 12, y: cy + 6)
+                // Hub
+                Circle().fill(Theme.primary).frame(width: 14, height: 14)
+                    .position(x: g.cx, y: g.cy)
+                Circle().fill(Theme.surface).frame(width: 6, height: 6)
+                    .position(x: g.cx, y: g.cy)
             }
         }
-    }
-
-    // ── Helpers ──────────────────────────────
-
-    /// Colour of the fill arc: red if above therapeutic range, green if in range, blue otherwise.
-    private var fillColor: Color {
-        if value > greenHi  { return Theme.accentRed }
-        if value >= greenLo { return Theme.accentGreen }
-        return Theme.gaugeFill
-    }
-
-    /// Convert a pressure value to an angle in radians.
-    /// 0 mmHg → 180° (left),  maxVal → 0° (right),  half → 90° (top).
-    /// Using standard screen coords: angles measured clockwise from the positive x-axis.
-    private func angle(for v: Double) -> Double {
-        let fraction = (v - minVal) / (maxVal - minVal)
-        // map 0→π  to  1→0  (arc sweeps from left (π) to right (0) via the top)
-        return Double.pi - fraction * Double.pi
-    }
-
-    /// A point on the arc circle.
-    private func arcPoint(cx: Double, cy: Double, r: Double, v: Double) -> CGPoint {
-        let a = angle(for: v)
-        return CGPoint(x: cx + r * cos(a), y: cy - r * sin(a))   // -sin: y grows downward
-    }
-
-    /// A Path that draws the arc from `from` to `to` going counterclockwise (over the top).
-    private func arcPath(cx: Double, cy: Double, r: Double, from lo: Double, to hi: Double) -> Path {
-        Path { p in
-            let startAngle = Angle(radians: Double.pi - (lo - minVal) / (maxVal - minVal) * Double.pi)
-            let endAngle   = Angle(radians: Double.pi - (hi - minVal) / (maxVal - minVal) * Double.pi)
-            // clockwise: false = counterclockwise in screen coords = arc over the top
-            p.addArc(center: CGPoint(x: cx, y: cy),
-                     radius: r,
-                     startAngle: startAngle,
-                     endAngle: endAngle,
-                     clockwise: true)   // SwiftUI flips Y, so true = counterclockwise visually
-        }
-    }
-
-    /// A short radial tick mark at the target value.
-    @ViewBuilder
-    private func targetTick(cx: Double, cy: Double, r: Double) -> some View {
-        let inner = arcPoint(cx: cx, cy: cy, r: r - 18, v: target)
-        let outer = arcPoint(cx: cx, cy: cy, r: r + 4,  v: target)
-        Path { p in
-            p.move(to: inner)
-            p.addLine(to: outer)
-        }
-        .stroke(Theme.accentOrange, style: StrokeStyle(lineWidth: 2, lineCap: .round))
     }
 }
 
@@ -201,74 +210,87 @@ struct GaugeView: View {
 // MARK: - Reusable sub-views
 // ─────────────────────────────────────────────
 
-/// Rounded card panel used throughout the screen.
-struct PanelView<Content: View>: View {
-    var title  : String?
+struct Panel<Content: View>: View {
+    var title: String? = nil
+    var trailing: AnyView? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 0) {
             if let title {
-                Text(title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(Theme.textMuted)
-                    .tracking(1.2)
+                HStack {
+                    Text(title.uppercased())
+                        .font(.system(size: 12, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundColor(Theme.muted)
+                    Spacer()
+                    if let trailing { trailing }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity)
+                .background(Theme.surfaceAlt)
+
+                Rectangle().fill(Theme.line).frame(height: 1)
             }
+
             content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
         }
-        .padding(16)
         .background(Theme.surface)
-        .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Theme.border, lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
     }
 }
 
-/// Small coloured badge (e.g. "ACTIVE", "THERAPEUTIC").
-struct BadgeView: View {
-    let label : String
-    let color : Color
-
+struct Badge: View {
+    var label: String
+    var color: Color
     var body: some View {
-        Text(label)
-            .font(.system(size: 10, weight: .bold))
+        Text(label.uppercased())
+            .font(.system(size: 11, weight: .bold))
+            .tracking(0.3)
             .foregroundColor(color)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 9)
             .padding(.vertical, 3)
-            .background(color.opacity(0.15))
-            .cornerRadius(4)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(color.opacity(0.35), lineWidth: 1)
-            )
+            .background(color.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.25), lineWidth: 1))
     }
 }
 
-/// One of the four target preset buttons (Light / Medium / Firm / Max).
 struct PresetButton: View {
-    let preset    : Preset
-    let isSelected: Bool
-    let action    : () -> Void
+    var preset: Preset
+    var selected: Bool
+    var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Text(preset.label)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(isSelected ? preset.color : Theme.textSecondary)
-                Text("\(Int(preset.target))")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(isSelected ? preset.color.opacity(0.8) : Theme.textMuted)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(preset.label)
+                        .font(.system(size: 14, weight: .bold))
+                    Spacer()
+                    if selected {
+                        Text("●").font(.system(size: 11))
+                    }
+                }
+                Text("\(Int(preset.value))")
+                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                Text("\(preset.range) mmHg")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .opacity(selected ? 0.85 : 0.55)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(isSelected ? preset.color.opacity(0.12) : Theme.surfaceAlt)
-            .cornerRadius(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .foregroundColor(selected ? .white : Theme.ink)
+            .background(selected ? Theme.primary : Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? preset.color.opacity(0.5) : Theme.border, lineWidth: 1)
+                    .stroke(selected ? Theme.primary : Theme.line, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
@@ -280,246 +302,205 @@ struct PresetButton: View {
 // ─────────────────────────────────────────────
 
 struct AeroWrapHomeView: View {
-    // ── State ────────────────────────────────
-    @State private var currentPressure : Double = 0
-    @State private var selectedPreset  : Preset = presets[1]   // "Medium" default
-    @State private var sessionActive   : Bool   = false
-    @State private var elapsedSeconds  : Int    = 0
-    @State private var sessionTimer    : Timer? = nil
-    @State private var simTimer        : Timer? = nil
+    /// Optional "go back" action. When set (e.g. when pushed onto a UIKit nav
+    /// stack), a back chevron is shown in the app bar. Left nil in previews.
+    var onBack: (() -> Void)? = nil
 
-    // ── Derived ──────────────────────────────
-    private var statusLabel: String {
-        if !sessionActive { return "STANDBY" }
-        if currentPressure < selectedPreset.target - 2  { return "INFLATING" }
-        if currentPressure > selectedPreset.target + 2  { return "DEFLATING" }
-        return "THERAPEUTIC"
-    }
-    private var statusColor: Color {
-        switch statusLabel {
-        case "THERAPEUTIC": return Theme.accentGreen
-        case "INFLATING":   return Theme.accent
-        case "DEFLATING":   return Theme.accentOrange
-        default:            return Theme.textMuted
-        }
-    }
-    private var elapsedFormatted: String {
-        let m = elapsedSeconds / 60
-        let s = elapsedSeconds % 60
-        return String(format: "%02d:%02d", m, s)
-    }
-    private var targetReached: Bool {
-        abs(currentPressure - selectedPreset.target) < 2
+    @State private var pressure: Double = 40          // starts at target like the React version
+    @State private var selectedTarget: Double = 40    // "Firm" default
+    @State private var blink = false
+    @State private var simTimer: Timer? = nil
+
+    private var rangeBadge: (String, Color) {
+        if pressure > 40 { return ("High", Theme.alert) }
+        if pressure < 20 { return ("Low", Theme.caution) }
+        return ("In range", Theme.normal)
     }
 
-    // ── Body ─────────────────────────────────
     var body: some View {
-        ZStack {
-            Theme.background.edgesIgnoringSafeArea(.all)
-
+        VStack(spacing: 0) {
+            appBar
+            statusRow
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
-                    headerBar
-                    gaugePanel
-                    statusRow
-                    controlButton
-                    presetsPanel
-                    statsRow
+                    livePressurePanel
+                    targetPanel
+                    bottomRow
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 30)
+                .padding(16)
             }
         }
-        .onDisappear { stopSession() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg.ignoresSafeArea())
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { blink = true }
+            startSim()
+        }
+        .onDisappear { simTimer?.invalidate(); simTimer = nil }
     }
 
-    // ── Sub-sections ─────────────────────────
-
-    private var headerBar: some View {
-        HStack {
+    // ── App bar ──────────────────────────────
+    private var appBar: some View {
+        HStack(alignment: .top) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(Theme.primary)
+                        .frame(width: 30, height: 30, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+            }
             VStack(alignment: .leading, spacing: 2) {
-                Text("AeroWrap")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(Theme.textPrimary)
-                Text("Compression Monitor")
-                    .font(.system(size: 12))
-                    .foregroundColor(Theme.textSecondary)
+                Text("AERO WRAP · v1.0")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(2)
+                    .foregroundColor(Theme.primary)
+                Text("Monitor")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(Theme.ink)
             }
             Spacer()
-            // Device status chip
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(sessionActive ? Theme.accentGreen : Theme.textMuted)
-                    .frame(width: 7, height: 7)
-                Text(sessionActive ? "Connected" : "No Device")
-                    .font(.system(size: 12))
-                    .foregroundColor(sessionActive ? Theme.accentGreen : Theme.textMuted)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Theme.surface)
-            .cornerRadius(20)
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: 1))
-        }
-        .padding(.top, 10)
-    }
-
-    private var gaugePanel: some View {
-        PanelView {
-            GaugeView(value: currentPressure, target: selectedPreset.target)
-                .frame(height: 200)
-                .padding(.top, 6)
-        }
-    }
-
-    private var statusRow: some View {
-        HStack(spacing: 10) {
-            PanelView {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("STATUS")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(Theme.textMuted)
-                        .tracking(1.2)
-                    BadgeView(label: statusLabel, color: statusColor)
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            PanelView {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("TARGET")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(Theme.textMuted)
-                        .tracking(1.2)
-                    HStack(spacing: 4) {
-                        Text(String(format: "%.0f", selectedPreset.target))
-                            .font(.system(size: 20, weight: .bold, design: .monospaced))
-                            .foregroundColor(selectedPreset.color)
-                        Text("mmHg")
-                            .font(.system(size: 11))
-                            .foregroundColor(Theme.textSecondary)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            PanelView {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("SESSION")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(Theme.textMuted)
-                        .tracking(1.2)
-                    Text(elapsedFormatted)
-                        .font(.system(size: 20, weight: .bold, design: .monospaced))
-                        .foregroundColor(sessionActive ? Theme.textPrimary : Theme.textMuted)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var controlButton: some View {
-        Button(action: sessionActive ? stopSession : startSession) {
-            HStack(spacing: 8) {
-                Image(systemName: sessionActive ? "stop.fill" : "play.fill")
-                Text(sessionActive ? "Stop Session" : "Start Session")
-                    .fontWeight(.semibold)
-            }
-            .foregroundColor(sessionActive ? Theme.accentRed : Theme.background)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(sessionActive ? Theme.accentRed.opacity(0.15) : Theme.accentGreen)
-            .cornerRadius(10)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(sessionActive ? Theme.accentRed.opacity(0.5) : Color.clear,
-                            lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var presetsPanel: some View {
-        PanelView(title: "Target Preset") {
-            HStack(spacing: 8) {
-                ForEach(presets) { preset in
-                    PresetButton(
-                        preset: preset,
-                        isSelected: selectedPreset.id == preset.id
-                    ) {
-                        selectedPreset = preset
-                    }
-                }
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("LEFT LEG")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Theme.muted)
+                Text("Sensor #A4-19")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Theme.faint)
             }
         }
-    }
-
-    private var statsRow: some View {
-        HStack(spacing: 10) {
-            statTile(title: "Peak",
-                     value: sessionActive ? String(format: "%.1f", currentPressure) : "--",
-                     unit: "mmHg",
-                     color: Theme.accentRed)
-            statTile(title: "Time in Range",
-                     value: targetReached && sessionActive ? "Active" : "--",
-                     unit: "",
-                     color: Theme.accentGreen)
-            statTile(title: "Preset",
-                     value: selectedPreset.label,
-                     unit: "\(Int(selectedPreset.target)) mmHg",
-                     color: selectedPreset.color)
-        }
-    }
-
-    private func statTile(title: String, value: String, unit: String, color: Color) -> some View {
-        PanelView {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(Theme.textMuted)
-                    .tracking(1.0)
-                Text(value)
-                    .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundColor(color)
-                if !unit.isEmpty {
-                    Text(unit)
-                        .font(.system(size: 10))
-                        .foregroundColor(Theme.textSecondary)
-                }
-            }
-        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
+        .background(Theme.surface.ignoresSafeArea(edges: .top))   // white into the notch
+        .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .bottom)
     }
 
-    // ── Fake data simulation ──────────────────
-
-    private func startSession() {
-        sessionActive  = true
-        elapsedSeconds = 0
-
-        // Clock
-        sessionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            elapsedSeconds += 1
+    // ── Status row ───────────────────────────
+    private var statusRow: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Theme.normal).frame(width: 8, height: 8)
+                .opacity(blink ? 0.35 : 1)
+            Text("Sensor connected")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundColor(Theme.ink)
+            Text("·").foregroundColor(Theme.faint)
+            Text("Thingy:52 · −58 dBm")
+                .font(.system(size: 12.5, design: .monospaced))
+                .foregroundColor(Theme.muted)
+            Spacer()
+            Text("LIVE")
+                .font(.system(size: 12.5, design: .monospaced))
+                .foregroundColor(Theme.faint)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity)
+        .background(Theme.surfaceAlt)
+        .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .bottom)
+    }
 
-        // Fake pressure: creeps toward target with small random noise
-        simTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            let target = selectedPreset.target
-            let diff   = target - currentPressure
-            let step   = diff * 0.08                            // 8 % of remaining gap each tick
-            let noise  = Double.random(in: -0.3...0.3)
-            currentPressure = max(0, min(60, currentPressure + step + noise))
+    // ── Live pressure ────────────────────────
+    private var livePressurePanel: some View {
+        Panel(title: "Live pressure",
+              trailing: AnyView(Badge(label: rangeBadge.0, color: rangeBadge.1))) {
+            VStack(spacing: 2) {
+                InstrumentGauge(value: pressure, target: selectedTarget)
+                    .frame(height: 150)
+
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%.1f", pressure))
+                        .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Theme.ink)
+                    Text("mmHg")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Theme.muted)
+                }
+
+                HStack(spacing: 4) {
+                    Text("Target").foregroundColor(Theme.muted)
+                    Text("\(Int(selectedTarget))")
+                        .font(.system(size: 12.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(Theme.primary)
+                    Text("· Normal band 20–40").foregroundColor(Theme.muted)
+                }
+                .font(.system(size: 12.5))
+                .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity)
         }
     }
 
-    private func stopSession() {
-        sessionTimer?.invalidate(); sessionTimer = nil
-        simTimer?.invalidate();     simTimer     = nil
-        sessionActive  = false
-        // Slowly bleed pressure back to 0
-        simTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { t in
-            currentPressure = max(0, currentPressure - 1.2)
-            if currentPressure <= 0 { t.invalidate(); simTimer = nil }
+    // ── Set target compression ───────────────
+    private var targetPanel: some View {
+        Panel(title: "Set target compression") {
+            VStack(spacing: 8) {
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 8),
+                              GridItem(.flexible(), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(presets) { p in
+                        PresetButton(preset: p, selected: selectedTarget == p.value) {
+                            selectedTarget = p.value
+                        }
+                    }
+                }
+
+                Button(action: {}) {
+                    Text("+ Custom value")
+                        .font(.system(size: 13.5, weight: .bold))
+                        .foregroundColor(Theme.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(Theme.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // ── Session / Last sync ──────────────────
+    private var bottomRow: some View {
+        HStack(spacing: 14) {
+            Panel(title: "Session") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("02:14")
+                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Theme.ink)
+                    Text("elapsed")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(Theme.muted)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Panel(title: "Last sync") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("2s")
+                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                        .foregroundColor(Theme.ink)
+                    Text("ago")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(Theme.muted)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // ── Fake data simulation (mirrors the React useEffect) ──
+    private func startSim() {
+        simTimer?.invalidate()
+        simTimer = Timer.scheduledTimer(withTimeInterval: 0.9, repeats: true) { _ in
+            let diff = selectedTarget - pressure
+            let noise = Double.random(in: -0.25...0.25)
+            pressure = ((pressure + diff * 0.18 + noise) * 10).rounded() / 10
         }
     }
 }
@@ -528,26 +509,58 @@ struct AeroWrapHomeView: View {
 // MARK: - UIKit bridge
 // ─────────────────────────────────────────────
 
-/// Drop this UIHostingController into the existing UIKit navigation wherever
-/// you want to show the new home screen.
-///
-/// Example (in a UIViewController):
-/// ```swift
-/// let vc = AeroWrapHostingController()
-/// navigationController?.pushViewController(vc, animated: true)
-/// ```
 import UIKit
 
+/// Drop this UIHostingController into the existing UIKit navigation.
+///
+/// ```swift
+/// let vc = AeroWrapHostingController()
+/// navigationController?.setNavigationBarHidden(true, animated: false) // app bar is built in
+/// navigationController?.pushViewController(vc, animated: true)
+/// ```
 final class AeroWrapHostingController: UIHostingController<AeroWrapHomeView> {
     required init?(coder: NSCoder) {
         super.init(coder: coder, rootView: AeroWrapHomeView())
+        rootView.onBack = { [weak self] in
+            self?.navigationController?.popViewController(animated: true)
+        }
     }
     init() {
         super.init(rootView: AeroWrapHomeView())
+        rootView.onBack = { [weak self] in
+            self?.navigationController?.popViewController(animated: true)
+        }
     }
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(red: 0x0D/255.0, green: 0x11/255.0, blue: 0x17/255.0, alpha: 1)
+        // Match the light clinical screen background (#EBEFF3).
+        view.backgroundColor = UIColor(red: 0xEB / 255.0,
+                                       green: 0xEF / 255.0,
+                                       blue: 0xF3 / 255.0,
+                                       alpha: 1)
+    }
+
+    // Hide the host nav bar so the built-in app bar can bleed into the notch,
+    // but keep the left-edge swipe-to-go-back gesture alive. Restore the bar
+    // on the way out so the Nordic screens look unchanged.
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+        navigationController?.interactivePopGestureRecognizer?.delegate = self
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+        navigationController?.interactivePopGestureRecognizer?.delegate = nil
+    }
+}
+
+extension AeroWrapHostingController: UIGestureRecognizerDelegate {
+    // Allow the edge-swipe pop only when there's somewhere to go back to.
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        return (navigationController?.viewControllers.count ?? 0) > 1
     }
 }
 

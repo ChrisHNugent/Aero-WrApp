@@ -78,6 +78,14 @@ class TutorialViewController: UIViewController {
         continueButton.setTitle("CONTINUE", for: .normal)
         pageControl.isEnabled = false
 
+        // Skip the storyboard launch chain when Xcode is rendering a SwiftUI
+        // preview. Previews boot the whole host app first, and the SWReveal
+        // "SkipTutorial" segue crashes under the preview executor (empty array).
+        // The real app launch is unaffected.
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            return
+        }
+
         //Jump to main view as early as possible
         let key = "AppOpenedCounter"
         let count = UserDefaults.standard.integer(forKey: key)

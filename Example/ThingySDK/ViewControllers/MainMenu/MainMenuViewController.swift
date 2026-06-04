@@ -87,6 +87,7 @@ class MainMenuViewController: UIViewController, UITableViewDataSource, UITableVi
     ]
     
     private let moreMenuItems = [
+        "Aero Wrap Monitor",
         "Device Firmware Update",
         "About"
     ]
@@ -101,6 +102,7 @@ class MainMenuViewController: UIViewController, UITableViewDataSource, UITableVi
     ]
     
     private let moreMenuIcons = [
+        #imageLiteral(resourceName: "ic_widgets_24pt"),
         #imageLiteral(resourceName: "ic_dfu_24pt"),
         #imageLiteral(resourceName: "ic_info_24pt")
     ]
@@ -601,8 +603,10 @@ class MainMenuViewController: UIViewController, UITableViewDataSource, UITableVi
         case 2:
             switch(indexPath.row) {
             case 0:
-                targetNavigationController.showDFUView()
+                showAeroWrapView()
             case 1:
+                targetNavigationController.showDFUView()
+            case 2:
                 targetNavigationController.showAboutView()
             default:
                 print("Unkown Selection")
@@ -616,6 +620,15 @@ class MainMenuViewController: UIViewController, UITableViewDataSource, UITableVi
         }
     }
     
+    //MARK: - Aero Wrap
+    private func showAeroWrapView() {
+        // Push the SwiftUI monitor screen onto the existing navigation stack.
+        // The host controller hides the nav bar and keeps the left-edge swipe
+        // to pop back, so the Nordic flow underneath is left untouched.
+        let host = AeroWrapHostingController()
+        targetNavigationController.pushViewController(host, animated: true)
+    }
+
     //MARK: - UIScrollViewDelegate methods
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // Prevent table view from bouncing at the top
