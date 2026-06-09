@@ -83,6 +83,39 @@ class MainEmptyConfigurationViewController: SwipableViewController {
         addThingyButton.setBackgroundColor(color: UIColor.nordicLakeDark, forState: .highlighted)
         
         addThingyNFCButton.isHidden = !NFCNDEFReaderSession.readingAvailable
+
+        addDemoButton()
+    }
+
+    //MARK: - Aero Wrap demo entry
+    // Added programmatically (no storyboard edits) so the Aero Wrap Monitor
+    // screen is reachable in the simulator while there's no Thingy to connect.
+    // Feeds the SwiftUI screen the MockPressureSource. Remove once real BLE
+    // pairing works end-to-end.
+    private func addDemoButton() {
+        let demoButton = UIButton(type: .system)
+        demoButton.translatesAutoresizingMaskIntoConstraints = false
+        demoButton.setTitle("Open Aero Wrap (Demo)", for: .normal)
+        demoButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        demoButton.setTitleColor(.white, for: .normal)
+        demoButton.backgroundColor = UIColor.nordicLake
+        demoButton.setBackgroundColor(color: UIColor.nordicLakeDark, forState: .highlighted)
+        demoButton.layer.cornerRadius = 4
+        demoButton.layer.masksToBounds = true
+        demoButton.addTarget(self, action: #selector(demoButtonTapped), for: .touchUpInside)
+        view.addSubview(demoButton)
+
+        NSLayoutConstraint.activate([
+            demoButton.leadingAnchor.constraint(equalTo: addThingyButton.leadingAnchor),
+            demoButton.trailingAnchor.constraint(equalTo: addThingyButton.trailingAnchor),
+            demoButton.topAnchor.constraint(equalTo: addThingyButton.bottomAnchor, constant: 12),
+            demoButton.heightAnchor.constraint(equalTo: addThingyButton.heightAnchor)
+        ])
+    }
+
+    @objc private func demoButtonTapped() {
+        let host = AeroWrapHostingController()
+        navigationController?.pushViewController(host, animated: true)
     }
     
     override func targetPeripheralDidChange(new: ThingyPeripheral?) {

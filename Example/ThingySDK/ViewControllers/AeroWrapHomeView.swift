@@ -23,19 +23,20 @@ import SwiftUI
 // ─────────────────────────────────────────────
 
 enum Theme {
-    static let bg          = Color(hex: "#EBEFF3")   // screen background
-    static let surface     = Color(hex: "#FFFFFF")   // panels
-    static let surfaceAlt   = Color(hex: "#F4F7FA")  // panel headers / chips
-    static let ink         = Color(hex: "#0F1B2D")   // primary text
-    static let muted       = Color(hex: "#5B6B7C")
-    static let faint       = Color(hex: "#8A99A8")
-    static let line        = Color(hex: "#DBE3EA")   // borders / track
-    static let primary     = Color(hex: "#0E5AA7")   // clinical blue (needle, accents)
-    static let primaryDeep = Color(hex: "#0A4178")
+    static let bg          = Color(hex: "#EEF2F6")   // screen background
+    static let surface     = Color(hex: "#FFFFFF")   // cards
+    static let surfaceAlt   = Color(hex: "#F4F8FB")  // chips / headers
+    static let ink         = Color(hex: "#0E1A2B")   // primary text
+    static let inkSoft     = Color(hex: "#33445A")   // body copy
+    static let muted       = Color(hex: "#5E6E7F")
+    static let faint       = Color(hex: "#9AA8B6")
+    static let line        = Color(hex: "#E3EAF0")   // borders / track
+    static let primary     = Color(hex: "#1C6FD6")   // clinical blue (needle, accents)
+    static let primaryDeep = Color(hex: "#0E4FA3")
     static let blue        = Color(hex: "#2E86DE")
-    static let normal      = Color(hex: "#138A6B")   // in-range green
-    static let caution     = Color(hex: "#C98A00")   // amber
-    static let alert       = Color(hex: "#D64545")   // red
+    static let normal      = Color(hex: "#15A37A")   // in-range green
+    static let caution     = Color(hex: "#E0930E")   // amber
+    static let alert       = Color(hex: "#E25555")   // red
 }
 
 extension Color {
@@ -210,37 +211,37 @@ struct InstrumentGauge: View {
 // MARK: - Reusable sub-views
 // ─────────────────────────────────────────────
 
-struct Panel<Content: View>: View {
-    var title: String? = nil
-    var trailing: AnyView? = nil
+/// Soft rounded card with a hairline border and a subtle drop shadow —
+/// the `Card` primitive from the React design.
+struct SoftCard<Content: View>: View {
+    var padding: CGFloat = 16
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let title {
-                HStack {
-                    Text(title.uppercased())
-                        .font(.system(size: 12, weight: .bold))
-                        .tracking(0.5)
-                        .foregroundColor(Theme.muted)
-                    Spacer()
-                    if let trailing { trailing }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .frame(maxWidth: .infinity)
-                .background(Theme.surfaceAlt)
+        content()
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line, lineWidth: 1))
+            .shadow(color: Color(hex: "#102846").opacity(0.06), radius: 13, x: 0, y: 8)
+    }
+}
 
-                Rectangle().fill(Theme.line).frame(height: 1)
-            }
-
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
+/// Small uppercase section heading shown above a card (e.g. "SET TARGET …").
+struct SectionLabel: View {
+    var text: String
+    var trailing: AnyView? = nil
+    var body: some View {
+        HStack {
+            Text(text.uppercased())
+                .font(.system(size: 12, weight: .bold))
+                .tracking(0.5)
+                .foregroundColor(Theme.muted)
+            Spacer()
+            if let trailing { trailing }
         }
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+        .padding(.horizontal, 4)
     }
 }
 
@@ -254,7 +255,7 @@ struct Badge: View {
             .foregroundColor(color)
             .padding(.horizontal, 9)
             .padding(.vertical, 3)
-            .background(color.opacity(0.10))
+            .background(color.opacity(0.094))
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.25), lineWidth: 1))
     }
@@ -273,11 +274,13 @@ struct PresetButton: View {
                         .font(.system(size: 14, weight: .bold))
                     Spacer()
                     if selected {
-                        Text("●").font(.system(size: 11))
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .heavy))
                     }
                 }
                 Text("\(Int(preset.value))")
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                    .padding(.top, 2)
                 Text("\(preset.range) mmHg")
                     .font(.system(size: 10.5, design: .monospaced))
                     .opacity(selected ? 0.85 : 0.55)
@@ -287,13 +290,103 @@ struct PresetButton: View {
             .padding(.vertical, 12)
             .foregroundColor(selected ? .white : Theme.ink)
             .background(selected ? Theme.primary : Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 10)
                     .stroke(selected ? Theme.primary : Theme.line, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// One numbered "Applying your wrap" instruction row.
+struct StepRow: View {
+    var number: Int
+    var text: String
+    var showDivider: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Text("\(number)")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(Theme.primary)
+                    .frame(width: 26, height: 26)
+                    .background(Theme.primary.opacity(0.08))
+                    .clipShape(Circle())
+                Text(text)
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Theme.inkSoft)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 14)
+            if showDivider {
+                Rectangle().fill(Theme.line).frame(height: 1)
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// MARK: - Pressure source (data layer)
+//
+// One small seam between the UI and wherever the numbers come from. The view
+// only ever talks to a `PressureSource`; it neither knows nor cares whether the
+// readings are faked or arriving over Bluetooth.
+//
+// Today the app ships `MockPressureSource` (a timer that eases toward the
+// target with a little noise — the old `startSim()` behaviour, lifted out of
+// the view). When the BLE protocol is known, add a `ThingyPressureSource:
+// PressureSource` that wraps `beginPressureUpdates` and converts hPa→mmHg, then
+// swap the default in one line (see `AeroWrapHomeView.init`). Nothing in the
+// view changes.
+// ─────────────────────────────────────────────
+
+/// Base class so the view can hold it as a single `@StateObject` while the
+/// concrete implementation (mock now, real BLE later) is injected.
+class PressureSource: ObservableObject {
+    /// Latest reading in mmHg (the unit the gauge displays).
+    @Published var pressure: Double = 40
+    /// Whether we currently have a live feed (drives the status dot / "LIVE").
+    @Published var isConnected: Bool = false
+
+    /// Begin producing readings, aiming at `target` mmHg.
+    func start(target: Double) {}
+    /// The user picked a new target compression.
+    func updateTarget(_ target: Double) {}
+    /// Tear down (timers, BLE notifications, …).
+    func stop() {}
+}
+
+/// Simulated source: no hardware required, so the screen is fully usable in the
+/// simulator. Eases the reading toward the target with small random noise.
+final class MockPressureSource: PressureSource {
+    private var timer: Timer?
+    private var target: Double = 40
+
+    override func start(target: Double) {
+        self.target = target
+        pressure = target
+        isConnected = true
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.9, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let diff = self.target - self.pressure
+            let noise = Double.random(in: -0.25...0.25)
+            self.pressure = ((self.pressure + diff * 0.18 + noise) * 10).rounded() / 10
+        }
+    }
+
+    override func updateTarget(_ target: Double) {
+        self.target = target
+    }
+
+    override func stop() {
+        timer?.invalidate()
+        timer = nil
+        isConnected = false
     }
 }
 
@@ -306,26 +399,44 @@ struct AeroWrapHomeView: View {
     /// stack), a back chevron is shown in the app bar. Left nil in previews.
     var onBack: (() -> Void)? = nil
 
-    @State private var pressure: Double = 40          // starts at target like the React version
+    /// The data layer. Defaults to the mock; inject a `ThingyPressureSource`
+    /// here once the BLE protocol is wired up.
+    @StateObject private var source: PressureSource
+
     @State private var selectedTarget: Double = 40    // "Firm" default
     @State private var blink = false
-    @State private var simTimer: Timer? = nil
 
-    private var rangeBadge: (String, Color) {
-        if pressure > 40 { return ("High", Theme.alert) }
-        if pressure < 20 { return ("Low", Theme.caution) }
-        return ("In range", Theme.normal)
+    init(source: PressureSource = MockPressureSource(), onBack: (() -> Void)? = nil) {
+        self.onBack = onBack
+        _source = StateObject(wrappedValue: source)
     }
+
+    private let steps: [String] = [
+        "Slip the wrap over your foot and rest the sensor flat against the inner ankle.",
+        "Wrap firmly from the ankle upward with even overlap — no gaps or bunching.",
+        "Pick a target below and adjust tension until the gauge sits in the green band.",
+    ]
+
+    private var inRange: Bool { source.pressure >= 20 && source.pressure <= 40 }
 
     var body: some View {
         VStack(spacing: 0) {
             appBar
-            statusRow
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
-                    livePressurePanel
-                    targetPanel
-                    bottomRow
+                    header
+                    statusCard
+                    livePressureCard
+
+                    VStack(spacing: 8) {
+                        SectionLabel(text: "Set target compression")
+                        targetCard
+                    }
+
+                    VStack(spacing: 8) {
+                        SectionLabel(text: "Applying your wrap")
+                        stepsCard
+                    }
                 }
                 .padding(16)
             }
@@ -334,173 +445,157 @@ struct AeroWrapHomeView: View {
         .background(Theme.bg.ignoresSafeArea())
         .onAppear {
             withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { blink = true }
-            startSim()
+            source.start(target: selectedTarget)
         }
-        .onDisappear { simTimer?.invalidate(); simTimer = nil }
+        .onChange(of: selectedTarget) { newValue in
+            source.updateTarget(newValue)
+        }
+        .onDisappear { source.stop() }
     }
 
-    // ── App bar ──────────────────────────────
+    // ── App bar (branding + avatar) ──────────
     private var appBar: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .center) {
             if let onBack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(Theme.primary)
-                        .frame(width: 30, height: 30, alignment: .leading)
+                        .frame(width: 28, height: 28, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Back")
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("AERO WRAP · v1.0")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                Text("AERO WRAP")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(2)
                     .foregroundColor(Theme.primary)
-                Text("Monitor")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(Theme.ink)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("LEFT LEG")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Theme.muted)
-                Text("Sensor #A4-19")
-                    .font(.system(size: 11, design: .monospaced))
+                Text("Left leg · Sensor A4-19")
+                    .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(Theme.faint)
             }
+            Spacer()
+            Text("MR")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 38, height: 38)
+                .background(
+                    LinearGradient(colors: [Theme.primary, Theme.primaryDeep],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .clipShape(Circle())
+                .shadow(color: Theme.primary.opacity(0.5), radius: 6, x: 0, y: 4)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .padding(.bottom, 14)
+        .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .background(Theme.surface.ignoresSafeArea(edges: .top))   // white into the notch
         .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .bottom)
     }
 
-    // ── Status row ───────────────────────────
-    private var statusRow: some View {
-        HStack(spacing: 8) {
-            Circle().fill(Theme.normal).frame(width: 8, height: 8)
-                .opacity(blink ? 0.35 : 1)
-            Text("Sensor connected")
-                .font(.system(size: 12.5, weight: .semibold))
+    // ── Screen heading ───────────────────────
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Live monitor")
+                .font(.system(size: 22, weight: .heavy))
                 .foregroundColor(Theme.ink)
-            Text("·").foregroundColor(Theme.faint)
-            Text("Thingy:52 · −58 dBm")
-                .font(.system(size: 12.5, design: .monospaced))
+            Text("Real-time sub-wrap pressure")
+                .font(.system(size: 12.5))
                 .foregroundColor(Theme.muted)
-            Spacer()
-            Text("LIVE")
-                .font(.system(size: 12.5, design: .monospaced))
-                .foregroundColor(Theme.faint)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity)
-        .background(Theme.surfaceAlt)
-        .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .bottom)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
     }
 
-    // ── Live pressure ────────────────────────
-    private var livePressurePanel: some View {
-        Panel(title: "Live pressure",
-              trailing: AnyView(Badge(label: rangeBadge.0, color: rangeBadge.1))) {
-            VStack(spacing: 2) {
-                InstrumentGauge(value: pressure, target: selectedTarget)
+    // ── Connection status card ───────────────
+    private var statusCard: some View {
+        SoftCard(padding: 14) {
+            HStack(spacing: 9) {
+                Circle().fill(source.isConnected ? Theme.normal : Theme.faint)
+                    .frame(width: 9, height: 9)
+                    .opacity(source.isConnected && blink ? 0.3 : 1)
+                Text(source.isConnected ? "Sensor connected" : "Sensor offline")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(Theme.ink)
+                Spacer()
+                Text(source.isConnected ? "Thingy:52 · −58 dBm · 82%" : "Searching…")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundColor(Theme.muted)
+            }
+        }
+    }
+
+    // ── Live pressure card ───────────────────
+    private var livePressureCard: some View {
+        SoftCard {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("LIVE PRESSURE")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundColor(Theme.muted)
+                    Spacer()
+                    Badge(label: inRange ? "In range" : "Adjusting",
+                          color: inRange ? Theme.normal : Theme.caution)
+                }
+                .padding(.bottom, 4)
+
+                InstrumentGauge(value: source.pressure, target: selectedTarget)
                     .frame(height: 150)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(String(format: "%.1f", pressure))
-                        .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                    Text(String(format: "%.1f", source.pressure))
+                        .font(.system(size: 46, weight: .semibold, design: .monospaced))
                         .foregroundColor(Theme.ink)
                     Text("mmHg")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(Theme.muted)
                 }
+                .padding(.top, -8)
 
                 HStack(spacing: 4) {
                     Text("Target").foregroundColor(Theme.muted)
                     Text("\(Int(selectedTarget))")
                         .font(.system(size: 12.5, weight: .bold, design: .monospaced))
                         .foregroundColor(Theme.primary)
-                    Text("· Normal band 20–40").foregroundColor(Theme.muted)
+                    Text("mmHg").foregroundColor(Theme.muted)
                 }
                 .font(.system(size: 12.5))
-                .padding(.top, 2)
+                .padding(.top, 4)
             }
             .frame(maxWidth: .infinity)
         }
     }
 
-    // ── Set target compression ───────────────
-    private var targetPanel: some View {
-        Panel(title: "Set target compression") {
-            VStack(spacing: 8) {
-                LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 8),
-                              GridItem(.flexible(), spacing: 8)],
-                    spacing: 8
-                ) {
-                    ForEach(presets) { p in
-                        PresetButton(preset: p, selected: selectedTarget == p.value) {
-                            selectedTarget = p.value
-                        }
+    // ── Preset grid card ─────────────────────
+    private var targetCard: some View {
+        SoftCard(padding: 14) {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 8),
+                          GridItem(.flexible(), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(presets) { p in
+                    PresetButton(preset: p, selected: selectedTarget == p.value) {
+                        selectedTarget = p.value
                     }
                 }
-
-                Button(action: {}) {
-                    Text("+ Custom value")
-                        .font(.system(size: 13.5, weight: .bold))
-                        .foregroundColor(Theme.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(Theme.surfaceAlt)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
             }
         }
     }
 
-    // ── Session / Last sync ──────────────────
-    private var bottomRow: some View {
-        HStack(spacing: 14) {
-            Panel(title: "Session") {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("02:14")
-                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Theme.ink)
-                    Text("elapsed")
-                        .font(.system(size: 11.5))
-                        .foregroundColor(Theme.muted)
+    // ── Applying-your-wrap steps card ────────
+    private var stepsCard: some View {
+        SoftCard {
+            VStack(spacing: 0) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { idx, text in
+                    StepRow(number: idx + 1,
+                            text: text,
+                            showDivider: idx < steps.count - 1)
                 }
             }
-            .frame(maxWidth: .infinity)
-
-            Panel(title: "Last sync") {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("2s")
-                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Theme.ink)
-                    Text("ago")
-                        .font(.system(size: 11.5))
-                        .foregroundColor(Theme.muted)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    // ── Fake data simulation (mirrors the React useEffect) ──
-    private func startSim() {
-        simTimer?.invalidate()
-        simTimer = Timer.scheduledTimer(withTimeInterval: 0.9, repeats: true) { _ in
-            let diff = selectedTarget - pressure
-            let noise = Double.random(in: -0.25...0.25)
-            pressure = ((pressure + diff * 0.18 + noise) * 10).rounded() / 10
         }
     }
 }
@@ -533,10 +628,10 @@ final class AeroWrapHostingController: UIHostingController<AeroWrapHomeView> {
     }
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Match the light clinical screen background (#EBEFF3).
-        view.backgroundColor = UIColor(red: 0xEB / 255.0,
-                                       green: 0xEF / 255.0,
-                                       blue: 0xF3 / 255.0,
+        // Match the light clinical screen background (#EEF2F6).
+        view.backgroundColor = UIColor(red: 0xEE / 255.0,
+                                       green: 0xF2 / 255.0,
+                                       blue: 0xF6 / 255.0,
                                        alpha: 1)
     }
 
