@@ -625,7 +625,10 @@ class MainMenuViewController: UIViewController, UITableViewDataSource, UITableVi
         // Push the SwiftUI monitor screen onto the existing navigation stack.
         // The host controller hides the nav bar and keeps the left-edge swipe
         // to pop back, so the Nordic flow underneath is left untouched.
-        let host = AeroWrapHostingController()
+        // Passing the selected peripheral gives the screen live pressure data
+        // and inflate/deflate control; with no peripheral it shows "offline".
+        let host = AeroWrapHostingController(peripheral: targetPeripheral,
+                                             manager: thingyManager)
         targetNavigationController.pushViewController(host, animated: true)
     }
 

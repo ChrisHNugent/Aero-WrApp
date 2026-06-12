@@ -90,8 +90,8 @@ class MainEmptyConfigurationViewController: SwipableViewController {
     //MARK: - Aero Wrap demo entry
     // Added programmatically (no storyboard edits) so the Aero Wrap Monitor
     // screen is reachable in the simulator while there's no Thingy to connect.
-    // Feeds the SwiftUI screen the MockPressureSource. Remove once real BLE
-    // pairing works end-to-end.
+    // With no peripheral passed in, the screen opens in its "sensor offline"
+    // state (controls disabled) — useful for checking layout in the simulator.
     private func addDemoButton() {
         let demoButton = UIButton(type: .system)
         demoButton.translatesAutoresizingMaskIntoConstraints = false

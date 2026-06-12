@@ -2,21 +2,28 @@
 //  AeroWrapHomeView.swift
 //  ThingySDK
 //
-//  Home / Monitor screen — SwiftUI port of the React "clinical" prototype.
-//  Rebuilt to match the React reference: light clinical palette, instrument
-//  needle gauge with reference band + ticks, preset grid, monospace readouts.
+//  Home / Monitor screen — SwiftUI port of the React "clinical" prototype,
+//  now wired to a real Thingy:52.
 //
-//  Uses fake data so it runs in the simulator with no Thingy:52 connected.
-//  UIKit embedding helper is at the bottom (AeroWrapHostingController).
+//  ── How the device protocol works (per device team, June 2026) ──────────
+//  The wrap runs custom firmware that repurposes the Thingy UI service:
+//  writing a ONE-SHOT LED command with a preset color is the inflate command.
+//    green  → inflate to the HIGHEST pressure level
+//    yellow → inflate to the MIDDLE pressure level
+//    blue   → inflate to the LOWEST pressure level
+//    red    → DEFLATE the bladder
+//  The device LED lights up in the matching color. Live pressure streams from
+//  the environment service (`beginPressureUpdates`) in hPa (absolute,
+//  barometric). The gauge shows pressure RELATIVE to a baseline captured when
+//  the stream starts (hPa above baseline → mmHg, 1 hPa = 0.750062 mmHg).
 //
-//  NOTE ON FONTS: the React design uses IBM Plex Sans / IBM Plex Mono.
-//  Those aren't system fonts, so this file uses the system font with a
-//  .monospaced design for the numeric readouts (visually very close). To get
-//  a pixel-exact match, add the IBM Plex .ttf files to the app bundle and
-//  swap the `.system(... design: .monospaced)` calls for `.custom("IBMPlexMono", ...)`.
+//  The view only talks to a `PressureSource`. `ThingyPressureSource` is the
+//  live BLE implementation; the plain base class is the "offline" state
+//  (no device — controls disabled); `MockPressureSource` drives previews.
 //
 
 import SwiftUI
+import IOSThingyLibrary
 
 // ─────────────────────────────────────────────
 // MARK: - Theme  (matches the React `C` object — light "clinical")
@@ -65,22 +72,57 @@ extension Color {
 }
 
 // ─────────────────────────────────────────────
-// MARK: - Preset model
+// MARK: - Wrap commands (the firmware protocol)
 // ─────────────────────────────────────────────
 
-struct Preset: Identifiable {
-    let id = UUID()
-    let label: String
-    let value: Double      // mmHg
-    let range: String
-}
+/// The four things the wrap firmware can be told to do. Each maps to a
+/// one-shot LED write with a preset color — that's the custom protocol.
+enum WrapCommand: String, CaseIterable, Identifiable {
+    case low, medium, high, deflate
 
-let presets: [Preset] = [
-    Preset(label: "Light",  value: 20, range: "15–20"),
-    Preset(label: "Medium", value: 30, range: "20–30"),
-    Preset(label: "Firm",   value: 40, range: "30–40"),
-    Preset(label: "Max",    value: 50, range: "40–50"),
-]
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .low:     return "Low"
+        case .medium:  return "Medium"
+        case .high:    return "High"
+        case .deflate: return "Deflate"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .low:     return "Lowest pressure"
+        case .medium:  return "Middle pressure"
+        case .high:    return "Highest pressure"
+        case .deflate: return "Empty the bladder"
+        }
+    }
+
+    /// LED preset the firmware interprets as this command (and lights up).
+    var ledPreset: ThingyLEDColorPreset {
+        switch self {
+        case .low:     return .blue
+        case .medium:  return .yellow
+        case .high:    return .green
+        case .deflate: return .red
+        }
+    }
+
+    /// Dot shown on the button so the user can match it to the device LED.
+    var ledColor: Color {
+        switch self {
+        case .low:     return Color(hex: "#2E86DE")
+        case .medium:  return Color(hex: "#E0B30E")
+        case .high:    return Color(hex: "#15A37A")
+        case .deflate: return Theme.alert
+        }
+    }
+
+    /// The three inflate levels, in display order.
+    static var inflateLevels: [WrapCommand] { [.low, .medium, .high] }
+}
 
 // ─────────────────────────────────────────────
 // MARK: - Gauge geometry
@@ -163,7 +205,6 @@ struct Needle: Shape {
 
 struct InstrumentGauge: View {
     var value: Double
-    var target: Double
     private let ticks: [Double] = [0, 10, 20, 30, 40, 50, 60]
 
     var body: some View {
@@ -228,7 +269,7 @@ struct SoftCard<Content: View>: View {
     }
 }
 
-/// Small uppercase section heading shown above a card (e.g. "SET TARGET …").
+/// Small uppercase section heading shown above a card (e.g. "INFLATE TO").
 struct SectionLabel: View {
     var text: String
     var trailing: AnyView? = nil
@@ -261,32 +302,36 @@ struct Badge: View {
     }
 }
 
-struct PresetButton: View {
-    var preset: Preset
+/// One of the three inflate-level buttons (Low / Medium / High).
+struct LevelButton: View {
+    var command: WrapCommand
     var selected: Bool
+    var enabled: Bool
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(preset.label)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(command.ledColor)
+                        .frame(width: 9, height: 9)
+                    Text(command.label)
                         .font(.system(size: 14, weight: .bold))
-                    Spacer()
+                    Spacer(minLength: 0)
                     if selected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .heavy))
                     }
                 }
-                Text("\(Int(preset.value))")
-                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                    .padding(.top, 2)
-                Text("\(preset.range) mmHg")
-                    .font(.system(size: 10.5, design: .monospaced))
+                Text(command.detail)
+                    .font(.system(size: 10.5))
                     .opacity(selected ? 0.85 : 0.55)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
             .padding(.vertical, 12)
             .foregroundColor(selected ? .white : Theme.ink)
             .background(selected ? Theme.primary : Theme.surface)
@@ -297,6 +342,8 @@ struct PresetButton: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
     }
 }
 
@@ -332,55 +379,164 @@ struct StepRow: View {
 // ─────────────────────────────────────────────
 // MARK: - Pressure source (data layer)
 //
-// One small seam between the UI and wherever the numbers come from. The view
-// only ever talks to a `PressureSource`; it neither knows nor cares whether the
-// readings are faked or arriving over Bluetooth.
-//
-// Today the app ships `MockPressureSource` (a timer that eases toward the
-// target with a little noise — the old `startSim()` behaviour, lifted out of
-// the view). When the BLE protocol is known, add a `ThingyPressureSource:
-// PressureSource` that wraps `beginPressureUpdates` and converts hPa→mmHg, then
-// swap the default in one line (see `AeroWrapHomeView.init`). Nothing in the
-// view changes.
+// The seam between the UI and the hardware. The base class doubles as the
+// "offline" implementation: not connected, controls disabled, no readings.
 // ─────────────────────────────────────────────
 
-/// Base class so the view can hold it as a single `@StateObject` while the
-/// concrete implementation (mock now, real BLE later) is injected.
 class PressureSource: ObservableObject {
-    /// Latest reading in mmHg (the unit the gauge displays).
-    @Published var pressure: Double = 40
-    /// Whether we currently have a live feed (drives the status dot / "LIVE").
+    /// Pressure above baseline, in mmHg (the unit the gauge displays).
+    @Published var pressure: Double = 0
+    /// Last absolute barometer reading, hPa (shown small, for debugging).
+    @Published var rawHPa: Double? = nil
+    /// Baseline captured when the stream started / last re-zeroed, hPa.
+    @Published var baselineHPa: Double? = nil
+    /// Whether we currently have a live feed (drives the status dot).
     @Published var isConnected: Bool = false
+    /// The last command sent (drives button highlighting).
+    @Published var activeCommand: WrapCommand? = nil
+    /// Display name of the device, if any.
+    @Published var deviceName: String? = nil
 
-    /// Begin producing readings, aiming at `target` mmHg.
-    func start(target: Double) {}
-    /// The user picked a new target compression.
-    func updateTarget(_ target: Double) {}
+    /// Begin producing readings.
+    func start() {}
+    /// Send an inflate/deflate command to the wrap.
+    func send(_ command: WrapCommand) {}
+    /// Re-capture the baseline from the current raw reading.
+    func rezero() {}
     /// Tear down (timers, BLE notifications, …).
     func stop() {}
 }
 
-/// Simulated source: no hardware required, so the screen is fully usable in the
-/// simulator. Eases the reading toward the target with small random noise.
-final class MockPressureSource: PressureSource {
-    private var timer: Timer?
-    private var target: Double = 40
+/// Live BLE implementation, backed by a connected Thingy:52.
+///
+/// * Pressure: `beginPressureUpdates` streams absolute hPa from the LPS22HB.
+///   The first reading becomes the baseline; the published value is
+///   (reading − baseline) converted to mmHg, clamped at 0.
+/// * Control: one-shot LED writes — the custom firmware maps the preset color
+///   to an inflate level (blue=low, yellow=mid, green=high) or deflate (red).
+final class ThingyPressureSource: PressureSource {
 
-    override func start(target: Double) {
-        self.target = target
-        pressure = target
-        isConnected = true
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.9, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let diff = self.target - self.pressure
-            let noise = Double.random(in: -0.25...0.25)
-            self.pressure = ((self.pressure + diff * 0.18 + noise) * 10).rounded() / 10
+    /// 1 hPa = 0.750062 mmHg (true physical conversion).
+    static let mmHgPerHPa = 0.750062
+
+    /// Empirical calibration. The sensor measures bladder AIR pressure, which
+    /// overstates the compression actually applied to the leg: a full
+    /// inflation (~1100 hPa absolute, ~120 hPa above baseline) is ~91 mmHg of
+    /// air pressure but corresponds to roughly 20–30 mmHg of effective
+    /// compression. 0.27 maps that full inflation to ~25 on the gauge.
+    /// Tune this against a reference cuff gauge when one is available.
+    static let displayCalibration = 0.27
+
+    private let peripheral: ThingyPeripheral
+    private weak var manager: ThingyManager?
+    private var streaming = false
+
+    init(peripheral: ThingyPeripheral, manager: ThingyManager?) {
+        self.peripheral = peripheral
+        self.manager = manager
+        super.init()
+        deviceName = peripheral.name
+    }
+
+    override func start() {
+        switch peripheral.state {
+        case .ready:
+            beginUpdates()
+        case .disconnected:
+            // Mirror the main-menu behaviour: ask the manager to reconnect.
+            // `thingyPeripheral(_:didChangeStateTo:)` on the hosting controller
+            // calls back into `peripheralStateChanged` once it's ready.
+            manager?.connect(toDevice: peripheral)
+        default:
+            break // connecting / discovering — wait for the .ready callback
         }
     }
 
-    override func updateTarget(_ target: Double) {
-        self.target = target
+    /// Called by the hosting controller when the peripheral's state changes.
+    func peripheralStateChanged(to state: ThingyPeripheralState) {
+        switch state {
+        case .ready:
+            beginUpdates()
+        case .disconnected, .failedToConnect, .unavailable, .disconnecting, .notSupported:
+            isConnected = false
+            streaming = false
+        default:
+            break
+        }
+    }
+
+    private func beginUpdates() {
+        guard !streaming else { return }
+        streaming = true
+        peripheral.beginPressureUpdates(withCompletionHandler: { [weak self] success in
+            self?.isConnected = success
+            if !success { self?.streaming = false }
+            print("AeroWrap: pressure notifications enabled: \(success)")
+        }, andNotificationHandler: { [weak self] hPa in
+            guard let self = self else { return }
+            if self.baselineHPa == nil { self.baselineHPa = hPa }
+            self.rawHPa = hPa
+            self.isConnected = true
+            let delta = (hPa - (self.baselineHPa ?? hPa)) * Self.mmHgPerHPa * Self.displayCalibration
+            self.pressure = max(0, (delta * 10).rounded() / 10)
+        })
+    }
+
+    override func send(_ command: WrapCommand) {
+        guard peripheral.state == .ready else { return }
+        activeCommand = command
+        // The firmware reads the one-shot color as the inflate/deflate command.
+        peripheral.turnOnOneShotLED(withCompletionHandler: { success in
+            print("AeroWrap: command '\(command.rawValue)' sent: \(success)")
+        }, intensity: 100, andPresetColor: command.ledPreset)
+    }
+
+    override func rezero() {
+        if let raw = rawHPa {
+            baselineHPa = raw
+            pressure = 0
+        }
+    }
+
+    override func stop() {
+        streaming = false
+        peripheral.stopPressureUpdates(withCompletionHandler: nil)
+    }
+}
+
+/// Simulated source for SwiftUI previews — eases toward a per-command target.
+final class MockPressureSource: PressureSource {
+    private var timer: Timer?
+    private var target: Double = 0
+
+    override func start() {
+        isConnected = true
+        deviceName = "Preview"
+        rawHPa = 978.9
+        baselineHPa = 978.9
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.9, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let diff = self.target - self.pressure
+            let noise = Double.random(in: -0.25...0.25)
+            self.pressure = max(0, ((self.pressure + diff * 0.18 + noise) * 10).rounded() / 10)
+            self.rawHPa = (self.baselineHPa ?? 978.9) + self.pressure / ThingyPressureSource.mmHgPerHPa
+        }
+    }
+
+    override func send(_ command: WrapCommand) {
+        activeCommand = command
+        switch command {
+        case .low:     target = 20
+        case .medium:  target = 30
+        case .high:    target = 42
+        case .deflate: target = 0
+        }
+    }
+
+    override func rezero() {
+        baselineHPa = rawHPa
+        pressure = 0
     }
 
     override func stop() {
@@ -399,14 +555,13 @@ struct AeroWrapHomeView: View {
     /// stack), a back chevron is shown in the app bar. Left nil in previews.
     var onBack: (() -> Void)? = nil
 
-    /// The data layer. Defaults to the mock; inject a `ThingyPressureSource`
-    /// here once the BLE protocol is wired up.
+    /// The data layer. Plain `PressureSource` = offline; inject a
+    /// `ThingyPressureSource` for a live device, `MockPressureSource` in previews.
     @StateObject private var source: PressureSource
 
-    @State private var selectedTarget: Double = 40    // "Firm" default
     @State private var blink = false
 
-    init(source: PressureSource = MockPressureSource(), onBack: (() -> Void)? = nil) {
+    init(source: PressureSource = PressureSource(), onBack: (() -> Void)? = nil) {
         self.onBack = onBack
         _source = StateObject(wrappedValue: source)
     }
@@ -414,7 +569,7 @@ struct AeroWrapHomeView: View {
     private let steps: [String] = [
         "Slip the wrap over your foot and rest the sensor flat against the inner ankle.",
         "Wrap firmly from the ankle upward with even overlap — no gaps or bunching.",
-        "Pick a target below and adjust tension until the gauge sits in the green band.",
+        "Pick a pressure level below — the wrap inflates on its own. The device LED matches the button color.",
     ]
 
     private var inRange: Bool { source.pressure >= 20 && source.pressure <= 40 }
@@ -429,8 +584,8 @@ struct AeroWrapHomeView: View {
                     livePressureCard
 
                     VStack(spacing: 8) {
-                        SectionLabel(text: "Set target compression")
-                        targetCard
+                        SectionLabel(text: "Inflate to")
+                        controlCard
                     }
 
                     VStack(spacing: 8) {
@@ -445,10 +600,7 @@ struct AeroWrapHomeView: View {
         .background(Theme.bg.ignoresSafeArea())
         .onAppear {
             withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { blink = true }
-            source.start(target: selectedTarget)
-        }
-        .onChange(of: selectedTarget) { newValue in
-            source.updateTarget(newValue)
+            source.start()
         }
         .onDisappear { source.stop() }
     }
@@ -471,7 +623,7 @@ struct AeroWrapHomeView: View {
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(2)
                     .foregroundColor(Theme.primary)
-                Text("Left leg · Sensor A4-19")
+                Text(source.deviceName ?? "No device")
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundColor(Theme.faint)
             }
@@ -520,9 +672,12 @@ struct AeroWrapHomeView: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(Theme.ink)
                 Spacer()
-                Text(source.isConnected ? "Thingy:52 · −58 dBm · 82%" : "Searching…")
+                Text(source.isConnected
+                     ? (source.deviceName ?? "Thingy:52")
+                     : "Connect from the menu")
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundColor(Theme.muted)
+                    .lineLimit(1)
             }
         }
     }
@@ -537,16 +692,16 @@ struct AeroWrapHomeView: View {
                         .tracking(0.5)
                         .foregroundColor(Theme.muted)
                     Spacer()
-                    Badge(label: inRange ? "In range" : "Adjusting",
-                          color: inRange ? Theme.normal : Theme.caution)
+                    Badge(label: source.isConnected ? (inRange ? "In range" : "Adjusting") : "Offline",
+                          color: source.isConnected ? (inRange ? Theme.normal : Theme.caution) : Theme.faint)
                 }
                 .padding(.bottom, 4)
 
-                InstrumentGauge(value: source.pressure, target: selectedTarget)
+                InstrumentGauge(value: source.pressure)
                     .frame(height: 150)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(String(format: "%.1f", source.pressure))
+                    Text(source.isConnected ? String(format: "%.1f", source.pressure) : "––.–")
                         .font(.system(size: 46, weight: .semibold, design: .monospaced))
                         .foregroundColor(Theme.ink)
                     Text("mmHg")
@@ -555,32 +710,80 @@ struct AeroWrapHomeView: View {
                 }
                 .padding(.top, -8)
 
-                HStack(spacing: 4) {
-                    Text("Target").foregroundColor(Theme.muted)
-                    Text("\(Int(selectedTarget))")
-                        .font(.system(size: 12.5, weight: .bold, design: .monospaced))
-                        .foregroundColor(Theme.primary)
-                    Text("mmHg").foregroundColor(Theme.muted)
+                Text("above baseline")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(Theme.muted)
+                    .padding(.top, 2)
+
+                // Raw sensor line + re-zero — small, for first-device debugging.
+                HStack(spacing: 10) {
+                    Text(rawCaption)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundColor(Theme.faint)
+                    if source.isConnected {
+                        Button("Re-zero") { source.rezero() }
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(Theme.primary)
+                            .buttonStyle(.plain)
+                    }
                 }
-                .font(.system(size: 12.5))
-                .padding(.top, 4)
+                .padding(.top, 6)
             }
             .frame(maxWidth: .infinity)
         }
     }
 
-    // ── Preset grid card ─────────────────────
-    private var targetCard: some View {
+    private var rawCaption: String {
+        guard let raw = source.rawHPa else { return "no sensor data yet" }
+        let base = source.baselineHPa.map { String(format: "%.1f", $0) } ?? "—"
+        return String(format: "raw %.1f hPa · baseline %@ hPa", raw, base)
+    }
+
+    // ── Inflate / deflate control card ───────
+    private var controlCard: some View {
         SoftCard(padding: 14) {
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 8),
-                          GridItem(.flexible(), spacing: 8)],
-                spacing: 8
-            ) {
-                ForEach(presets) { p in
-                    PresetButton(preset: p, selected: selectedTarget == p.value) {
-                        selectedTarget = p.value
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(WrapCommand.inflateLevels) { cmd in
+                        LevelButton(command: cmd,
+                                    selected: source.activeCommand == cmd,
+                                    enabled: source.isConnected) {
+                            source.send(cmd)
+                        }
                     }
+                }
+
+                // Deflate — full-width, destructive styling.
+                Button {
+                    source.send(.deflate)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("Deflate")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundColor(source.activeCommand == .deflate ? .white : Theme.alert)
+                    .background(source.activeCommand == .deflate ? Theme.alert : Theme.alert.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Theme.alert.opacity(source.activeCommand == .deflate ? 1 : 0.35),
+                                    lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!source.isConnected)
+                .opacity(source.isConnected ? 1 : 0.45)
+
+                if !source.isConnected {
+                    Text("Controls are disabled until a wrap is connected.")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.faint)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 2)
                 }
             }
         }
@@ -609,23 +812,59 @@ import UIKit
 /// Drop this UIHostingController into the existing UIKit navigation.
 ///
 /// ```swift
-/// let vc = AeroWrapHostingController()
-/// navigationController?.setNavigationBarHidden(true, animated: false) // app bar is built in
+/// let vc = AeroWrapHostingController(peripheral: targetPeripheral, manager: thingyManager)
 /// navigationController?.pushViewController(vc, animated: true)
 /// ```
-final class AeroWrapHostingController: UIHostingController<AeroWrapHomeView> {
+///
+/// Conforms to `HasThingyTarget` so `MainNavigationViewController` forwards
+/// peripheral state changes (connect / disconnect) while this is on top.
+final class AeroWrapHostingController: UIHostingController<AeroWrapHomeView>, HasThingyTarget {
+
+    var thingyManager: ThingyManager?
+    var targetPeripheral: ThingyPeripheral?
+
+    private let source: PressureSource
+
+    /// Pass the currently selected peripheral (or nil for the offline state,
+    /// e.g. the simulator demo button).
+    init(peripheral: ThingyPeripheral? = nil, manager: ThingyManager? = nil) {
+        if let peripheral {
+            source = ThingyPressureSource(peripheral: peripheral, manager: manager)
+        } else {
+            source = PressureSource()   // offline — controls disabled
+        }
+        targetPeripheral = peripheral
+        thingyManager = manager
+        super.init(rootView: AeroWrapHomeView(source: source))
+        rootView.onBack = { [weak self] in
+            self?.navigationController?.popViewController(animated: true)
+        }
+    }
+
     required init?(coder: NSCoder) {
-        super.init(coder: coder, rootView: AeroWrapHomeView())
+        source = PressureSource()
+        super.init(coder: coder, rootView: AeroWrapHomeView(source: source))
         rootView.onBack = { [weak self] in
             self?.navigationController?.popViewController(animated: true)
         }
     }
-    init() {
-        super.init(rootView: AeroWrapHomeView())
-        rootView.onBack = { [weak self] in
-            self?.navigationController?.popViewController(animated: true)
+
+    // MARK: HasThingyTarget
+
+    func setTargetPeripheral(_ aTargetPeripheral: ThingyPeripheral?, andManager aManager: ThingyManager?) {
+        targetPeripheral = aTargetPeripheral
+        thingyManager = aManager
+        // The screen is built around the peripheral it was opened with; if the
+        // user switches devices, pop back so it can be reopened cleanly.
+        if aTargetPeripheral == nil {
+            (source as? ThingyPressureSource)?.peripheralStateChanged(to: .disconnected)
         }
     }
+
+    func thingyPeripheral(_ peripheral: ThingyPeripheral, didChangeStateTo state: ThingyPeripheralState) {
+        (source as? ThingyPressureSource)?.peripheralStateChanged(to: state)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         // Match the light clinical screen background (#EEF2F6).
@@ -660,9 +899,13 @@ extension AeroWrapHostingController: UIGestureRecognizerDelegate {
 }
 
 // ─────────────────────────────────────────────
-// MARK: - Preview
+// MARK: - Previews
 // ─────────────────────────────────────────────
 
-#Preview {
+#Preview("Live (mock)") {
+    AeroWrapHomeView(source: MockPressureSource())
+}
+
+#Preview("Offline") {
     AeroWrapHomeView()
 }
