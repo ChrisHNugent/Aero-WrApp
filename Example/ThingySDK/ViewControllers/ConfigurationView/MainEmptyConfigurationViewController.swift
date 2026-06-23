@@ -69,7 +69,12 @@ class MainEmptyConfigurationViewController: SwipableViewController {
     }
     
     private var mainNavigationController: MainNavigationViewController?
-    
+
+    // Guards the one-time auto-push of the Aero Wrap connect screen so backing
+    // out of it doesn't immediately re-present it (the Nordic empty screen stays
+    // underneath as an escape hatch).
+    private var didPresentAeroConnect = false
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -127,14 +132,18 @@ class MainEmptyConfigurationViewController: SwipableViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         mainNavigationController = navigationController as? MainNavigationViewController
-        
-        guard thingyManager!.persistentPeripheralIdentifiers() != nil else {
-            return
-        }
-        
-        if thingyManager!.persistentPeripheralIdentifiers()!.count > 0 {
-            // We have stored peripherals
-            mainNavigationController?.showDefaultView()
+
+        // Aero Wrap is the front door. Whenever we land on this (Nordic "empty")
+        // screen without an active wrap session — including a normal cold launch,
+        // even when a wrap was paired before — show the Aero Wrap connect / device
+        // picker instead of the Nordic default view. Picking a wrap connects and
+        // hands off to the Aero Wrap screen. The Nordic screens stay reachable
+        // (menu button + add/demo buttons underneath); guarded so backing out of
+        // the picker doesn't immediately re-present it.
+        if didPresentAeroConnect == false {
+            didPresentAeroConnect = true
+            let connect = AeroWrapConnectHostingController(manager: thingyManager)
+            navigationController?.pushViewController(connect, animated: false)
         }
     }
     
